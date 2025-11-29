@@ -1456,8 +1456,10 @@ class Game(AudioRecorder):
         
         # Timer background - positioned at top right (more to the right)
         timer_rect = pygame.Rect(GAME_WIDTH - 220, 20, 180, 80)
-        pygame.draw.rect(self.game_surface, WHITE, timer_rect)
-        pygame.draw.rect(self.game_surface, BLACK, timer_rect, 3)
+        # Background: RGB 255, 242, 223, Radius 15
+        pygame.draw.rect(self.game_surface, (255, 242, 223), timer_rect, border_radius=15)
+        # Border: RGB 133, 63, 31, Radius 15
+        pygame.draw.rect(self.game_surface, (133, 63, 31), timer_rect, 3, border_radius=15)
         
         # Timer text - red when less than 6 seconds
         timer_surface = self.timer_font.render(timer_text, True, BLACK if self.time_remaining > 5 else RED)
