@@ -426,9 +426,9 @@ class Game:
         self.npc_path_points = [
             (GAME_WIDTH - 550, GAME_HEIGHT - 480),  # Starting point (current NPC position)
             (GAME_WIDTH - 700, GAME_HEIGHT - 480),  # Move left
-            (GAME_WIDTH - 700, GAME_HEIGHT - 200),  # Move down
-            (150, GAME_HEIGHT - 200),               # Move far left
-            (GAME_WIDTH - 700, GAME_HEIGHT - 200),  # Move back to right area
+            (GAME_WIDTH - 700, GAME_HEIGHT - 150),  # Move down
+            (150, GAME_HEIGHT - 150),               # Move far left
+            (GAME_WIDTH - 700, GAME_HEIGHT - 150),  # Move back to right area
             (GAME_WIDTH - 700, GAME_HEIGHT - 800),               # Move up
             (GAME_WIDTH - 700, GAME_HEIGHT - 480),               # Move down
             (GAME_WIDTH - 700, GAME_HEIGHT - 480),  # Back to right area
@@ -568,10 +568,12 @@ class Game:
                             pygame_img = pygame.image.fromstring(
                                 frame_rgba.tobytes(), frame_rgba.size, frame_rgba.mode
                             ).convert_alpha()
+                            # Resize based on direction
                             
-                            # Resize to 10%
-                            width = int(pygame_img.get_width() * 0.1)
-                            height = int(pygame_img.get_height() * 0.1)
+                            scale_factor = 0.12 if direction in ["up", "down"] else 0.105
+                            
+                            width = int(pygame_img.get_width() * scale_factor)
+                            height = int(pygame_img.get_height() * scale_factor)
                             pygame_img = pygame.transform.smoothscale(pygame_img, (width, height))
                             frames.append(pygame_img)
                         
@@ -582,9 +584,11 @@ class Game:
                     else:
                         # Fallback to static load
                         img = pygame.image.load(path).convert_alpha()
-                        # Resize to 10% of original size as requested
-                        width = int(img.get_width() * 0.1)
-                        height = int(img.get_height() * 0.1)
+                        
+                        scale_factor = 0.12 if direction in ["up", "down"] else 0.105
+                        
+                        width = int(img.get_width() * scale_factor)
+                        height = int(img.get_height() * scale_factor)
                         img = pygame.transform.smoothscale(img, (width, height))
                         self.npc_images[direction] = img
                         print(f"✓ Loaded NPC {direction} image (static): {path}")
@@ -1295,17 +1299,18 @@ class Game:
             
             mic_img = self.microphone_images.get(mic_state)
             if mic_img:
-                # Position: right side, about 1/3 from right edge
-                # Button width is 303. Right 1/3 is approx 100px.
+                # Position: right side, middle height
+                # Button width is 303. Right side middle.
                 # Mic size is 48x48.
                 
                 mic_target_width = 48
                 mic_target_height = 48
                 scaled_mic = pygame.transform.smoothscale(mic_img, (mic_target_width, mic_target_height))
                 
-                # Center in the right 1/3 area
-                # Right 1/3 starts at x + 202. Center of that area is x + 252.
-                mic_x = start_x + 252 - (mic_target_width // 2)
+                # Position at right middle with some padding
+                # Let's place it at 15% of width from right
+                # x = start_x + button_width - padding - mic_width
+                mic_x = start_x + button_width - 45 - mic_target_width
                 mic_y = button_y + (button_height - mic_target_height) // 2
                 
                 self.game_surface.blit(scaled_mic, (mic_x, mic_y))
@@ -1493,11 +1498,11 @@ class Game:
             title = pygame.font.Font(None, 28).render("Your Answer:", True, BLACK)
             self.game_surface.blit(title, (text_start_x, text_start_y))
             
-            # Record button - position left middle with padding
+            # Record button - position left middle with padding, moved down slightly
             btn_width = 120
             btn_height = 40
             btn_x = text_start_x
-            btn_y = box_y + (target_height // 2) - (btn_height // 2)
+            btn_y = box_y + (target_height // 2) - (btn_height // 2) + 20 # Added 20px offset
             
             # Colors: Default (170, 167, 165), Recording (253, 152, 73)
             btn_color = (253, 152, 73) if self.is_recording else (170, 167, 165)
