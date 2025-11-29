@@ -2181,12 +2181,24 @@ class Game(AudioRecorder):
                                 self.tea_selected = None
                                 self.waiting_for_tea_choice = False
                                 self.timer_active = False
+                                self.time_remaining = GAME_TIME
+                                self.start_time = None
                                 self.show_menu = False
+                                self.menu_open = False
                                 self.show_shopping_cart = False
-                                self.npc_moving = True
+                                self.npc_moving = False
                                 self.npc_at_player = False
+                                self.npc_clickable = False # Ensure NPC is not clickable
                                 self.npc_current_path_index = 0
                                 self.npc_position = list(self.npc_path_points[0])
+                                self.order_recording = False
+                                self.order_transcribed_text = ""
+                                self.transcribed_text = "" # Clear player dialogue transcription
+                                self.menu_scroll_offset = 0
+                                self.cart_scroll_offset = 0
+                                self.bill_scroll_y = 0
+                                self.start_button_clicked = False
+                                self.start_button_click_time = 0
                                 continue
                             
                             # Handle scrolling in bill (if clicked inside area? usually wheel is better)
