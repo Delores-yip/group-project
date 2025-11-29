@@ -58,6 +58,13 @@ NPC_ORDER_AUDIO = "audio file/npc_order.mp3"            # "有咩帮到你?" aud
 NPC_DIALOGUE_IMAGE = "temp png file/npc_dialogue.png"
 PLAYER_DIALOGUE_IMAGE = "temp png file/player_dialogue.png"
 
+# Ordering Interface Assets
+ORDER_BUTTON_IMAGE = "temp png file/order_button.png"
+CHECK_BUTTON_IMAGE = "temp png file/check_button.png"
+MICROPHONE_DEFAULT = "temp png file/microphone_default.png"
+MICROPHONE_HOVER = "temp png file/microphone_hover.png"
+MICROPHONE_RECORDING = "temp png file/microphone_recording.png"
+
 # Menu and UI Assets
 MENU_ICON = "temp png file/menu.png"                     # Menu icon on table (94x136) - clickable
 MENU_FULL = "temp png file/4a.png"                       # Full menu interface when opened
@@ -367,6 +374,10 @@ class Game:
         self.npc_dialogue_image = None     # NPC dialogue box image
         self.player_dialogue_image = None  # Player dialogue box image
         
+        self.order_button_image = None     # Place Order button image
+        self.check_button_image = None     # Check Out button image
+        self.microphone_images = {}        # Microphone icons (default, hover, recording)
+        
         self.npc_images = {}               # NPC directional images (static fallback)
         self.npc_frames = {}               # NPC directional frames (for animation)
         self.npc_direction = "down"        # Current NPC direction
@@ -669,6 +680,36 @@ class Game:
                 print(f"✓ Loaded player dialogue image: {PLAYER_DIALOGUE_IMAGE}")
             except Exception as e:
                 print(f"✗ Failed to load player dialogue image: {e}")
+        
+        # Load ordering interface buttons
+        if ORDER_BUTTON_IMAGE and os.path.exists(ORDER_BUTTON_IMAGE):
+            try:
+                self.order_button_image = pygame.image.load(ORDER_BUTTON_IMAGE).convert_alpha()
+                print(f"✓ Loaded order button image: {ORDER_BUTTON_IMAGE}")
+            except Exception as e:
+                print(f"✗ Failed to load order button image: {e}")
+                
+        if CHECK_BUTTON_IMAGE and os.path.exists(CHECK_BUTTON_IMAGE):
+            try:
+                self.check_button_image = pygame.image.load(CHECK_BUTTON_IMAGE).convert_alpha()
+                print(f"✓ Loaded check button image: {CHECK_BUTTON_IMAGE}")
+            except Exception as e:
+                print(f"✗ Failed to load check button image: {e}")
+                
+        # Load microphone icons
+        mic_assets = {
+            "default": MICROPHONE_DEFAULT,
+            "hover": MICROPHONE_HOVER,
+            "recording": MICROPHONE_RECORDING
+        }
+        
+        for state, path in mic_assets.items():
+            if path and os.path.exists(path):
+                try:
+                    self.microphone_images[state] = pygame.image.load(path).convert_alpha()
+                    print(f"✓ Loaded microphone {state} icon: {path}")
+                except Exception as e:
+                    print(f"✗ Failed to load microphone {state} icon: {e}")
         
         # Load category buttons
         category_buttons = {
@@ -1229,8 +1270,8 @@ class Game:
         self.dialogue_lines = temp_lines
         
         # Draw two buttons in center-lower area
-        button_width = 280
-        button_height = 80
+        button_width = 303
+        button_height = 158
         button_spacing = 40
         total_width = button_width * 2 + button_spacing
         start_x = (GAME_WIDTH - total_width) // 2
@@ -1238,19 +1279,58 @@ class Game:
         
         # Place Order button (left)
         self.place_order_button = pygame.Rect(start_x, button_y, button_width, button_height)
-        pygame.draw.rect(self.game_surface, GREEN, self.place_order_button)
-        pygame.draw.rect(self.game_surface, BLACK, self.place_order_button, 3)
-        order_text = pygame.font.Font(None, 42).render("Place Order", True, BLACK)
-        order_rect = order_text.get_rect(center=self.place_order_button.center)
-        self.game_surface.blit(order_text, order_rect)
+        
+        if self.order_button_image:
+            # Scale image to fit button rect
+            scaled_order_btn = pygame.transform.smoothscale(self.order_button_image, (button_width, button_height))
+            self.game_surface.blit(scaled_order_btn, (start_x, button_y))
+            
+            # Draw microphone icon
+            # Determine state
+            mic_state = "default"
+            if self.order_recording:
+                mic_state = "recording"
+            elif self.place_order_button.collidepoint(self.scale_mouse_pos(pygame.mouse.get_pos()) or (0,0)):
+                mic_state = "hover"
+            
+            mic_img = self.microphone_images.get(mic_state)
+            if mic_img:
+                # Position: right side, about 1/3 from right edge
+                # Button width is 303. Right 1/3 is approx 100px.
+                # Mic size is 48x48.
+                
+                mic_target_width = 48
+                mic_target_height = 48
+                scaled_mic = pygame.transform.smoothscale(mic_img, (mic_target_width, mic_target_height))
+                
+                # Center in the right 1/3 area
+                # Right 1/3 starts at x + 202. Center of that area is x + 252.
+                mic_x = start_x + 252 - (mic_target_width // 2)
+                mic_y = button_y + (button_height - mic_target_height) // 2
+                
+                self.game_surface.blit(scaled_mic, (mic_x, mic_y))
+        else:
+            # Fallback
+            pygame.draw.rect(self.game_surface, GREEN, self.place_order_button)
+            pygame.draw.rect(self.game_surface, BLACK, self.place_order_button, 3)
+            order_text = pygame.font.Font(None, 42).render("Place Order", True, BLACK)
+            order_rect = order_text.get_rect(center=self.place_order_button.center)
+            self.game_surface.blit(order_text, order_rect)
         
         # Check Out button (right)
         self.checkout_button = pygame.Rect(start_x + button_width + button_spacing, button_y, button_width, button_height)
-        pygame.draw.rect(self.game_surface, BLUE, self.checkout_button)
-        pygame.draw.rect(self.game_surface, BLACK, self.checkout_button, 3)
-        checkout_text = pygame.font.Font(None, 42).render("Check Out", True, WHITE)
-        checkout_rect = checkout_text.get_rect(center=self.checkout_button.center)
-        self.game_surface.blit(checkout_text, checkout_rect)
+        
+        if self.check_button_image:
+            # Scale image to fit button rect
+            scaled_check_btn = pygame.transform.smoothscale(self.check_button_image, (button_width, button_height))
+            self.game_surface.blit(scaled_check_btn, (self.checkout_button.x, self.checkout_button.y))
+        else:
+            # Fallback
+            pygame.draw.rect(self.game_surface, BLUE, self.checkout_button)
+            pygame.draw.rect(self.game_surface, BLACK, self.checkout_button, 3)
+            checkout_text = pygame.font.Font(None, 42).render("Check Out", True, WHITE)
+            checkout_rect = checkout_text.get_rect(center=self.checkout_button.center)
+            self.game_surface.blit(checkout_text, checkout_rect)
         
         # If Place Order was clicked, show recording interface
         if self.order_recording or self.order_transcribed_text:
@@ -1261,12 +1341,22 @@ class Game:
             record_x = (GAME_WIDTH - record_width) // 2
             
             record_rect = pygame.Rect(record_x, record_y, record_width, record_height)
-            pygame.draw.rect(self.game_surface, WHITE, record_rect)
-            pygame.draw.rect(self.game_surface, BLACK, record_rect, 3)
+            
+            # Draw recording box with custom colors and rounded corners
+            # Outer color: RGB 133,63,31
+            # Inner color: RGB 255, 242, 223
+            # Corner radius: 15
+            
+            # Draw filled inner box
+            pygame.draw.rect(self.game_surface, (255, 242, 223), record_rect, border_radius=15)
+            # Draw border
+            pygame.draw.rect(self.game_surface, (133, 63, 31), record_rect, 3, border_radius=15)
             
             # Recording button
             self.order_record_button = pygame.Rect(record_x + 10, record_y + 10, 180, 50)
-            btn_color = RED if self.order_recording else GREEN
+            # Start Recording: RGB 170, 167, 165
+            # Recording (Stop): RGB 253, 152, 73
+            btn_color = (253, 152, 73) if self.order_recording else (170, 167, 165)
             btn_text = "Stop Recording" if self.order_recording else "Start Recording"
             pygame.draw.rect(self.game_surface, btn_color, self.order_record_button)
             pygame.draw.rect(self.game_surface, BLACK, self.order_record_button, 2)
@@ -1351,11 +1441,7 @@ class Game:
                 self.game_surface.blit(text_surface, (text_start_x, y_offset))
                 y_offset += 24
                 
-            # Play audio button (if audio is loaded) - position relative to box
-            if self.dialogue_audio_path:
-                # Position in bottom right corner of text area
-                play_button = Button(box_x + target_width - 80, box_y + target_height - 40, 60, 30, "Play", BLUE, WHITE)
-                play_button.draw(self.game_surface)
+            # Play audio button removed as requested
                 
         else:
             # Fallback to rectangle
@@ -1407,15 +1493,22 @@ class Game:
             title = pygame.font.Font(None, 28).render("Your Answer:", True, BLACK)
             self.game_surface.blit(title, (text_start_x, text_start_y))
             
-            # Record button - position inside the box, bottom left area
-            # Scale down button to fit
-            record_button_small = Button(text_start_x, box_y + target_height - 50, 120, 40, 
+            # Record button - position left middle with padding
+            btn_width = 120
+            btn_height = 40
+            btn_x = text_start_x
+            btn_y = box_y + (target_height // 2) - (btn_height // 2)
+            
+            # Colors: Default (170, 167, 165), Recording (253, 152, 73)
+            btn_color = (253, 152, 73) if self.is_recording else (170, 167, 165)
+            
+            record_button_small = Button(btn_x, btn_y, btn_width, btn_height, 
                                         "Stop" if self.is_recording else "Record", 
-                                        GREEN if self.is_recording else RED, WHITE)
+                                        btn_color, WHITE)
             record_button_small.draw(self.game_surface)
             
             # Update main record button position for click detection
-            self.record_button.rect = pygame.Rect(text_start_x, box_y + target_height - 50, 120, 40)
+            self.record_button.rect = pygame.Rect(btn_x, btn_y, btn_width, btn_height)
             
             # Show transcribed text
             if self.transcribed_text:
