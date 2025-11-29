@@ -33,9 +33,9 @@ An interactive educational game designed to help players learn and practice orde
 
 ## How to Play
 
-1.  **Start the Game**: Run the `testing_gamecode.py` script.
+1.  **Start the Game**: Run the `yum_cha_game.py` script.
     ```bash
-    python testing_gamecode.py
+    python yum_cha_game.py
     ```
 2.  **Enter the Canteen**: Click the **Start Learning** button on the main screen.
 3.  **Find a Seat**: Click on the table to sit down.
