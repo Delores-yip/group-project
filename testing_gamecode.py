@@ -551,9 +551,9 @@ class Game:
                                 frame_rgba.tobytes(), frame_rgba.size, frame_rgba.mode
                             ).convert_alpha()
                             
-                            # Resize to 45%
-                            width = int(pygame_img.get_width() * 0.45)
-                            height = int(pygame_img.get_height() * 0.45)
+                            # Resize to 10%
+                            width = int(pygame_img.get_width() * 0.1)
+                            height = int(pygame_img.get_height() * 0.1)
                             pygame_img = pygame.transform.smoothscale(pygame_img, (width, height))
                             frames.append(pygame_img)
                         
@@ -564,9 +564,9 @@ class Game:
                     else:
                         # Fallback to static load
                         img = pygame.image.load(path).convert_alpha()
-                        # Resize to 45% of original size as requested
-                        width = int(img.get_width() * 0.45)
-                        height = int(img.get_height() * 0.45)
+                        # Resize to 10% of original size as requested
+                        width = int(img.get_width() * 0.1)
+                        height = int(img.get_height() * 0.1)
                         img = pygame.transform.smoothscale(img, (width, height))
                         self.npc_images[direction] = img
                         print(f"✓ Loaded NPC {direction} image (static): {path}")
@@ -928,31 +928,19 @@ class Game:
             current_npc_img = self.npc_image
         
         if current_npc_img:
-            npc_rect = current_npc_img.get_rect()
+            # Use the image as-is (it is already resized in load_assets)
+            npc_width = current_npc_img.get_width()
+            npc_height = current_npc_img.get_height()
             
-            # Use a larger display height (approx 30% of screen height) instead of 120
-            # Screen height is 864, 30% is ~260.
-            target_height = 260 
+            # Adjust Y position so feet are at the same level as the original 120px sprite
+            # Original sprite was drawn at npc_y with height 120. Bottom was npc_y + 120.
+            # New sprite bottom should be at same position.
+            # New top = (npc_y + 120) - npc_height
             
-            scale_factor = target_height / npc_rect.height
-            npc_width = int(npc_rect.width * scale_factor)
-            npc_scaled = pygame.transform.scale(current_npc_img, (npc_width, target_height))
+            draw_y = npc_y + 120 - npc_height
             
-            # Adjust Y position so feet are at the same level (bottom aligned)
-            # Original code drew at npc_y (top-left). If we make it taller, we should shift y up?
-            # The path points seem to be top-left coordinates.
-            # Let's just draw at npc_y for now, but be aware it might look "higher" or "lower".
-            # Actually, usually sprites are anchored at bottom-center.
-            # But here the path logic uses top-left.
-            # If we increase height from 120 to 260, the head will be higher, feet at same relative y+height?
-            # No, blit uses top-left. So feet will be lower.
-            # To keep feet at same position as before (approx):
-            # Old height 120. New height 260. Difference 140.
-            # We should probably subtract 140 from y to keep feet aligned?
-            # But let's just draw it and see. The user said "icons are smaller than imagined", so making them bigger is key.
-            
-            self.game_surface.blit(npc_scaled, (npc_x, npc_y - (target_height - 120))) # Align bottom with old 120px sprite
-            self.npc_rect = pygame.Rect(npc_x, npc_y - (target_height - 120), npc_width, target_height)
+            self.game_surface.blit(current_npc_img, (npc_x, draw_y))
+            self.npc_rect = pygame.Rect(npc_x, draw_y, npc_width, npc_height)
         else:
             npc_width, npc_height = 96, 120
             pygame.draw.rect(self.game_surface, BLUE, (npc_x, npc_y, npc_width, npc_height))
@@ -988,13 +976,13 @@ class Game:
         if self.player_seated:
             if self.player_image:
                 player_rect = self.player_image.get_rect()
-                # Scale to height of 120 (150*0.8=120), maintain aspect ratio
-                scale_factor = 120 / player_rect.height
+                # Scale to height of 140, maintain aspect ratio
+                scale_factor = 140 / player_rect.height
                 player_width = int(player_rect.width * scale_factor)
-                player_scaled = pygame.transform.scale(self.player_image, (player_width, 120))
+                player_scaled = pygame.transform.scale(self.player_image, (player_width, 140))
                 # Position player at the top center side of the table (sitting position)
                 player_x = self.table_rect.centerx - (player_width // 2)
-                player_y = self.table_rect.top - 130  # Slightly overlap table 
+                player_y = self.table_rect.top - 140  # Slightly overlap table 
                 self.game_surface.blit(player_scaled, (player_x, player_y))
             else:
                 # Draw placeholder player - 80% size and positioned at left of table
