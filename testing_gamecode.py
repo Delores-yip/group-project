@@ -54,6 +54,10 @@ TEA_AUDIO_HONGCHA = "audio file/tea_hongcha.mp3"        # "Okay, one black tea"
 NPC_FULL_BODY = "temp png file/npc full body.png"       # NPC standing portrait for ordering
 NPC_ORDER_AUDIO = "audio file/npc_order.mp3"            # "有咩帮到你?" audio
 
+# Dialogue Box Assets
+NPC_DIALOGUE_IMAGE = "temp png file/npc_dialogue.png"
+PLAYER_DIALOGUE_IMAGE = "temp png file/player_dialogue.png"
+
 # Menu and UI Assets
 MENU_ICON = "temp png file/menu.png"                     # Menu icon on table (94x136) - clickable
 MENU_FULL = "temp png file/4a.png"                       # Full menu interface when opened
@@ -360,6 +364,9 @@ class Game:
         self.dish_audio_paths = {}         # All dish audio paths
         self.npc_full_body_image = None    # NPC full body standing portrait
         
+        self.npc_dialogue_image = None     # NPC dialogue box image
+        self.player_dialogue_image = None  # Player dialogue box image
+        
         self.npc_images = {}               # NPC directional images (static fallback)
         self.npc_frames = {}               # NPC directional frames (for animation)
         self.npc_direction = "down"        # Current NPC direction
@@ -647,6 +654,21 @@ class Game:
                 print(f"✗ Failed to load NPC full body: {e}")
         else:
             print("⚠ No NPC full body specified or file not found")
+            
+        # Load dialogue box images
+        if NPC_DIALOGUE_IMAGE and os.path.exists(NPC_DIALOGUE_IMAGE):
+            try:
+                self.npc_dialogue_image = pygame.image.load(NPC_DIALOGUE_IMAGE).convert_alpha()
+                print(f"✓ Loaded NPC dialogue image: {NPC_DIALOGUE_IMAGE}")
+            except Exception as e:
+                print(f"✗ Failed to load NPC dialogue image: {e}")
+        
+        if PLAYER_DIALOGUE_IMAGE and os.path.exists(PLAYER_DIALOGUE_IMAGE):
+            try:
+                self.player_dialogue_image = pygame.image.load(PLAYER_DIALOGUE_IMAGE).convert_alpha()
+                print(f"✓ Loaded player dialogue image: {PLAYER_DIALOGUE_IMAGE}")
+            except Exception as e:
+                print(f"✗ Failed to load player dialogue image: {e}")
         
         # Load category buttons
         category_buttons = {
@@ -1297,61 +1319,143 @@ class Game:
         
     def draw_dialogue_box(self):
         """Draw the dialogue display box"""
-        # Position below timer in top-right area (80% size)
-        box_rect = pygame.Rect(GAME_WIDTH - 420, 120, 384, 160)  # 480*0.8=384, 200*0.8=160
-        pygame.draw.rect(self.game_surface, WHITE, box_rect)
-        pygame.draw.rect(self.game_surface, BLACK, box_rect, 3)
+        # Position below timer in top-right area
+        # Original box was 384x160. New image is approx 800x309.
+        # We should scale it down to fit the UI better, maybe 50%? -> 400x155
         
-        title_font = pygame.font.Font(None, 28)
-        title = title_font.render("Dialogue:", True, BLACK)
-        self.game_surface.blit(title, (GAME_WIDTH - 410, 130))
+        target_width = 400
+        target_height = 155
+        box_x = GAME_WIDTH - 420
+        box_y = 120
         
-        # Dialogue text - ensure it stays within box boundaries
-        y_offset = 160
-        dialogue_font = pygame.font.Font(None, 26)  # Slightly smaller font
-        max_lines = 3  # Limit number of lines to fit in box
-        for i, line in enumerate(self.dialogue_lines[:max_lines]):
-            if y_offset + 26 > box_rect.bottom - 10:  # Check if text exceeds box
-                break
-            text_surface = dialogue_font.render(line, True, BLACK)
-            self.game_surface.blit(text_surface, (GAME_WIDTH - 410, y_offset))
-            y_offset += 28
-        
-        # Play audio button (if audio is loaded)
-        if self.dialogue_audio_path:
-            play_button = Button(GAME_WIDTH - 130, 130, 90, 35, "Play", BLUE, WHITE)
-            play_button.draw(self.game_surface)
+        if self.npc_dialogue_image:
+            # Use image
+            scaled_img = pygame.transform.smoothscale(self.npc_dialogue_image, (target_width, target_height))
+            self.game_surface.blit(scaled_img, (box_x, box_y))
+            
+            # Text area: Right 3/4 of the box, with padding
+            # Box width 400. 3/4 is 300. Start x = box_x + 100.
+            # Padding: let's say 20px from right edge, 10px from top/bottom
+            text_area_width = (target_width * 0.75) - 30 # 300 - 30 = 270
+            text_start_x = box_x + (target_width * 0.25) + 10 # 100 + 10 = 110 offset
+            text_start_y = box_y + 20
+            
+            # Re-wrap text for new width
+            wrapped_lines = self.wrap_text(self.current_dialogue, pygame.font.Font(None, 26), text_area_width)
+            
+            y_offset = text_start_y
+            dialogue_font = pygame.font.Font(None, 26)
+            
+            for line in wrapped_lines[:4]: # Show up to 4 lines
+                text_surface = dialogue_font.render(line, True, BLACK)
+                self.game_surface.blit(text_surface, (text_start_x, y_offset))
+                y_offset += 24
+                
+            # Play audio button (if audio is loaded) - position relative to box
+            if self.dialogue_audio_path:
+                # Position in bottom right corner of text area
+                play_button = Button(box_x + target_width - 80, box_y + target_height - 40, 60, 30, "Play", BLUE, WHITE)
+                play_button.draw(self.game_surface)
+                
+        else:
+            # Fallback to rectangle
+            box_rect = pygame.Rect(box_x, box_y, 384, 160)
+            pygame.draw.rect(self.game_surface, WHITE, box_rect)
+            pygame.draw.rect(self.game_surface, BLACK, box_rect, 3)
+            
+            title_font = pygame.font.Font(None, 28)
+            title = title_font.render("Dialogue:", True, BLACK)
+            self.game_surface.blit(title, (GAME_WIDTH - 410, 130))
+            
+            # Dialogue text - ensure it stays within box boundaries
+            y_offset = 160
+            dialogue_font = pygame.font.Font(None, 26)  # Slightly smaller font
+            max_lines = 3  # Limit number of lines to fit in box
+            for i, line in enumerate(self.dialogue_lines[:max_lines]):
+                if y_offset + 26 > box_rect.bottom - 10:  # Check if text exceeds box
+                    break
+                text_surface = dialogue_font.render(line, True, BLACK)
+                self.game_surface.blit(text_surface, (GAME_WIDTH - 410, y_offset))
+                y_offset += 28
+            
+            # Play audio button (if audio is loaded)
+            if self.dialogue_audio_path:
+                play_button = Button(GAME_WIDTH - 130, 130, 90, 35, "Play", BLUE, WHITE)
+                play_button.draw(self.game_surface)
             
     def draw_recording_box(self):
         """Draw the recording box"""
-        # Position below dialogue box (80% size)
-        box_rect = pygame.Rect(GAME_WIDTH - 420, 300, 384, 160)  # 480*0.8=384, 200*0.8=160
-        pygame.draw.rect(self.game_surface, WHITE, box_rect)
-        pygame.draw.rect(self.game_surface, BLACK, box_rect, 3)
+        # Position below dialogue box
+        target_width = 400
+        target_height = 155
+        box_x = GAME_WIDTH - 420
+        box_y = 300
         
-        # Title
-        title = pygame.font.Font(None, 28).render("Your Answer:", True, BLACK)  # Smaller font
-        self.game_surface.blit(title, (GAME_WIDTH - 410, 310))
-        
-        # Record button (80% size)
-        record_button_small = Button(GAME_WIDTH - 380, 345, 240, 64, 
-                                     "Stop" if self.is_recording else "Record", 
-                                     GREEN if self.is_recording else RED, WHITE)
-        record_button_small.draw(self.game_surface)
-        
-        # Update main record button position for click detection
-        self.record_button.rect = pygame.Rect(GAME_WIDTH - 380, 345, 240, 64)
-        
-        # Show transcribed text
-        if self.transcribed_text:
-            # Wrap transcribed text
-            wrapped_transcription = self.wrap_text(self.transcribed_text, 
-                                                   pygame.font.Font(None, 22), 350)
-            y_offset = 420
-            for line in wrapped_transcription[:2]:  # Show max 2 lines
-                text_surface = pygame.font.Font(None, 22).render(line, True, DARK_GRAY)
-                self.game_surface.blit(text_surface, (GAME_WIDTH - 410, y_offset))
-                y_offset += 25
+        if self.player_dialogue_image:
+            # Use image
+            scaled_img = pygame.transform.smoothscale(self.player_dialogue_image, (target_width, target_height))
+            self.game_surface.blit(scaled_img, (box_x, box_y))
+            
+            # Text area: Left 3/4 of the box, with padding
+            # Box width 400. 3/4 is 300.
+            # Padding: 20px from left edge, 10px from top
+            text_area_width = (target_width * 0.75) - 30 # 270
+            text_start_x = box_x + 20
+            text_start_y = box_y + 20
+            
+            # Title
+            title = pygame.font.Font(None, 28).render("Your Answer:", True, BLACK)
+            self.game_surface.blit(title, (text_start_x, text_start_y))
+            
+            # Record button - position inside the box, bottom left area
+            # Scale down button to fit
+            record_button_small = Button(text_start_x, box_y + target_height - 50, 120, 40, 
+                                        "Stop" if self.is_recording else "Record", 
+                                        GREEN if self.is_recording else RED, WHITE)
+            record_button_small.draw(self.game_surface)
+            
+            # Update main record button position for click detection
+            self.record_button.rect = pygame.Rect(text_start_x, box_y + target_height - 50, 120, 40)
+            
+            # Show transcribed text
+            if self.transcribed_text:
+                # Wrap transcribed text
+                wrapped_transcription = self.wrap_text(self.transcribed_text, 
+                                                    pygame.font.Font(None, 22), text_area_width)
+                y_offset = text_start_y + 30
+                for line in wrapped_transcription[:2]:
+                    text_surface = pygame.font.Font(None, 22).render(line, True, BLACK)
+                    self.game_surface.blit(text_surface, (text_start_x, y_offset))
+                    y_offset += 20
+        else:
+            # Fallback to rectangle
+            box_rect = pygame.Rect(box_x, box_y, 384, 160)
+            pygame.draw.rect(self.game_surface, WHITE, box_rect)
+            pygame.draw.rect(self.game_surface, BLACK, box_rect, 3)
+            
+            # Title
+            title = pygame.font.Font(None, 28).render("Your Answer:", True, BLACK)  # Smaller font
+            self.game_surface.blit(title, (GAME_WIDTH - 410, 310))
+            
+            # Record button (80% size)
+            record_button_small = Button(GAME_WIDTH - 380, 345, 240, 64, 
+                                        "Stop" if self.is_recording else "Record", 
+                                        GREEN if self.is_recording else RED, WHITE)
+            record_button_small.draw(self.game_surface)
+            
+            # Update main record button position for click detection
+            self.record_button.rect = pygame.Rect(GAME_WIDTH - 380, 345, 240, 64)
+            
+            # Show transcribed text
+            if self.transcribed_text:
+                # Wrap transcribed text
+                wrapped_transcription = self.wrap_text(self.transcribed_text, 
+                                                    pygame.font.Font(None, 22), 350)
+                y_offset = 420
+                for line in wrapped_transcription[:2]:  # Show max 2 lines
+                    text_surface = pygame.font.Font(None, 22).render(line, True, DARK_GRAY)
+                    self.game_surface.blit(text_surface, (GAME_WIDTH - 410, y_offset))
+                    y_offset += 25
     
     def draw_shopping_cart(self):
         """Draw the shopping cart with scrolling support for items"""
