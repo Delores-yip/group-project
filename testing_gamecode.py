@@ -52,6 +52,7 @@ TEA_AUDIO_HONGCHA = "audio file/tea_hongcha.mp3"        # "Okay, one black tea"
 
 # NPC ordering assets
 NPC_FULL_BODY = "temp png file/npc full body.png"       # NPC standing portrait for ordering
+NPC_FULL_BODY_ORDERING = "temp png file/npc_full_body_ordering.png" # NPC portrait when ordering
 NPC_ORDER_AUDIO = "audio file/npc_order.mp3"            # "有咩帮到你?" audio
 
 # Dialogue Box Assets
@@ -64,6 +65,10 @@ CHECK_BUTTON_IMAGE = "temp png file/check_button.png"
 MICROPHONE_DEFAULT = "temp png file/microphone_default.png"
 MICROPHONE_HOVER = "temp png file/microphone_hover.png"
 MICROPHONE_RECORDING = "temp png file/microphone_recording.png"
+
+# Bill and Checkout Assets
+BILL_IMAGE = "temp png file/bill.png"
+BACK_TO_HOME_IMAGE = "temp png file/back_to_home.png"
 
 # Menu and UI Assets
 MENU_ICON = "temp png file/menu.png"                     # Menu icon on table (94x136) - clickable
@@ -313,8 +318,9 @@ class AudioRecorder:
         
         return result
 
-class Game:
+class Game(AudioRecorder):
     def __init__(self):
+        super().__init__()
         # Setup display with aspect ratio preservation
         self.game_width = GAME_WIDTH
         self.game_height = GAME_HEIGHT
@@ -370,6 +376,8 @@ class Game:
         self.dish_images = {}              # All dish images
         self.dish_audio_paths = {}         # All dish audio paths
         self.npc_full_body_image = None    # NPC full body standing portrait
+        self.npc_full_body_original = None # NPC full body image (original size)
+        self.npc_full_body_ordering = None # NPC full body image (ordering state)
         
         self.npc_dialogue_image = None     # NPC dialogue box image
         self.player_dialogue_image = None  # Player dialogue box image
@@ -377,6 +385,13 @@ class Game:
         self.order_button_image = None     # Place Order button image
         self.check_button_image = None     # Check Out button image
         self.microphone_images = {}        # Microphone icons (default, hover, recording)
+        
+        self.bill_image = None             # Bill image
+        self.back_to_home_image = None     # Back to home button image
+        self.show_bill = False             # Flag to show bill
+        self.bill_scroll_y = 0             # Scroll offset for bill
+        self.bill_scroll_area = None       # Rect for bill scroll area
+        self.back_to_home_rect = None      # Rect for back to home button
         
         self.npc_images = {}               # NPC directional images (static fallback)
         self.npc_frames = {}               # NPC directional frames (for animation)
@@ -735,27 +750,33 @@ class Game:
         # Load all dish images and audio paths
         dishes = {
             # 经典蒸点
-            "shrimp_dumpling": DISH_SHRIMP_DUMPLING,
-            "shumai": DISH_SHUMAI,
-            "bbq_pork_bun": DISH_BBQ_PORK_BUN,
-            "custard_bun": DISH_CUSTARD_BUN,
-            "chicken_feet": DISH_CHICKEN_FEET,
-            "spare_ribs": DISH_SPARE_RIBS,
-            "beef_balls": DISH_BEEF_BALLS,
-            "sticky_rice": DISH_STICKY_RICE,
+            "shrimp_dumpling": {"data": DISH_SHRIMP_DUMPLING, "price": 28},
+            "shumai": {"data": DISH_SHUMAI, "price": 20},
+            "bbq_pork_bun": {"data": DISH_BBQ_PORK_BUN, "price": 20},
+            "custard_bun": {"data": DISH_CUSTARD_BUN, "price": 20},
+            "chicken_feet": {"data": DISH_CHICKEN_FEET, "price": 28},
+            "spare_ribs": {"data": DISH_SPARE_RIBS, "price": 28},
+            "beef_balls": {"data": DISH_BEEF_BALLS, "price": 20},
+            "sticky_rice": {"data": DISH_STICKY_RICE, "price": 28},
             # 香煎炸点
-            "spring_roll": DISH_SPRING_ROLL,
-            "dumpling_fried": DISH_DUMPLING_FRIED,
-            "taro_cake": DISH_TARO_CAKE,
-            "water_chestnut": DISH_WATER_CHESTNUT,
+            "spring_roll": {"data": DISH_SPRING_ROLL, "price": 16},
+            "dumpling_fried": {"data": DISH_DUMPLING_FRIED, "price": 20},
+            "taro_cake": {"data": DISH_TARO_CAKE, "price": 18},
+            "water_chestnut": {"data": DISH_WATER_CHESTNUT, "price": 16},
             # 粥粉时蔬
-            "beef_noodle": DISH_BEEF_NOODLE,
-            "shrimp_noodle": DISH_SHRIMP_NOODLE,
-            "century_egg_congee": DISH_CENTURY_EGG_CONGEE,
-            "chinese_kale": DISH_CHINESE_KALE
+            "beef_noodle": {"data": DISH_BEEF_NOODLE, "price": 36},
+            "shrimp_noodle": {"data": DISH_SHRIMP_NOODLE, "price": 36},
+            "century_egg_congee": {"data": DISH_CENTURY_EGG_CONGEE, "price": 32},
+            "chinese_kale": {"data": DISH_CHINESE_KALE, "price": 20}
         }
         
-        for dish_id, dish_data in dishes.items():
+        self.dish_prices = {} # Store prices
+        
+        for dish_id, info in dishes.items():
+            dish_data = info["data"]
+            price = info["price"]
+            self.dish_prices[dish_id] = price
+            
             img_path = dish_data["img"]
             audio_path = dish_data["audio"]
             
@@ -773,6 +794,29 @@ class Game:
                 print(f"✓ Found audio for: {dish_id}")
             else:
                 print(f"⚠ No audio found for: {dish_id}")
+                
+        # Load NPC ordering full body
+        if NPC_FULL_BODY_ORDERING and os.path.exists(NPC_FULL_BODY_ORDERING):
+            try:
+                self.npc_full_body_ordering = pygame.image.load(NPC_FULL_BODY_ORDERING).convert_alpha()
+                print(f"✓ Loaded NPC ordering full body: {NPC_FULL_BODY_ORDERING}")
+            except Exception as e:
+                print(f"✗ Failed to load NPC ordering full body: {e}")
+                
+        # Load Bill and Back to Home
+        if BILL_IMAGE and os.path.exists(BILL_IMAGE):
+            try:
+                self.bill_image = pygame.image.load(BILL_IMAGE).convert_alpha()
+                print(f"✓ Loaded bill image: {BILL_IMAGE}")
+            except Exception as e:
+                print(f"✗ Failed to load bill image: {e}")
+                
+        if BACK_TO_HOME_IMAGE and os.path.exists(BACK_TO_HOME_IMAGE):
+            try:
+                self.back_to_home_image = pygame.image.load(BACK_TO_HOME_IMAGE).convert_alpha()
+                print(f"✓ Loaded back to home image: {BACK_TO_HOME_IMAGE}")
+            except Exception as e:
+                print(f"✗ Failed to load back to home image: {e}")
     
     def toggle_fullscreen(self):
         """Toggle between fullscreen and windowed mode while maintaining aspect ratio"""
@@ -1223,6 +1267,10 @@ class Game:
         # Draw NPC ordering interface (if player clicked NPC) - LAST so it appears on top
         if self.ordering_mode and self.player_seated:
             self.draw_ordering_interface()
+            
+        # Draw Bill (if checkout clicked)
+        if self.show_bill:
+            self.draw_bill()
         
     def draw_ordering_interface(self):
         """Draw the NPC ordering interface when player clicks NPC"""
@@ -1234,7 +1282,11 @@ class Game:
         
         # Draw NPC full body on lower-left (about 1/4 from left)
         # Use original full body image if available, otherwise use the resized one
-        npc_img_to_use = getattr(self, 'npc_full_body_original', self.npc_full_body_image)
+        # Switch to ordering image if recording or transcribed text is present
+        if (self.order_recording or self.order_transcribed_text) and self.npc_full_body_ordering:
+            npc_img_to_use = self.npc_full_body_ordering
+        else:
+            npc_img_to_use = getattr(self, 'npc_full_body_original', self.npc_full_body_image)
         
         if npc_img_to_use:
             npc_img = npc_img_to_use
@@ -1696,6 +1748,101 @@ class Game:
         # Remove clipping
         self.game_surface.set_clip(None)
     
+    def draw_bill(self):
+        """Draw the bill screen"""
+        # Draw semi-transparent overlay
+        overlay = pygame.Surface((GAME_WIDTH, GAME_HEIGHT))
+        overlay.set_alpha(200)
+        overlay.fill(BLACK)
+        self.game_surface.blit(overlay, (0, 0))
+        
+        if self.bill_image:
+            # Center the bill
+            bill_x = (GAME_WIDTH - self.bill_image.get_width()) // 2
+            bill_y = (GAME_HEIGHT - self.bill_image.get_height()) // 2
+            self.game_surface.blit(self.bill_image, (bill_x, bill_y))
+            
+            # Scrollable area definition (253x368)
+            # Position needs to be determined relative to bill image
+            # Assuming it's in the "middle" as requested. 
+            # Let's estimate or use fixed offset if user didn't specify exact coordinates.
+            # User said "middle position". Let's center it horizontally in the bill, and vertically somewhat centered.
+            # Bill size: 654x866. Area size: 253x368.
+            
+            area_width = 253
+            area_height = 368
+            area_x = bill_x + (self.bill_image.get_width() - area_width) // 2
+            area_y = bill_y + 200 # Estimate Y position, maybe adjust later
+            
+            self.bill_scroll_area = pygame.Rect(area_x, area_y, area_width, area_height)
+            
+            # Create clipping rect for scroll area
+            self.game_surface.set_clip(self.bill_scroll_area)
+            
+            # Draw items in 2 columns
+            col_count = 2
+            item_width = 80 # Same as cart
+            item_height = 80
+            padding_x = (area_width - (col_count * item_width)) // 3
+            padding_y = 20
+            
+            total_price = 0
+            
+            for i, dish_id in enumerate(self.cart_items):
+                # Calculate price
+                price = self.dish_prices.get(dish_id, 0)
+                total_price += price
+                
+                row = i // col_count
+                col = i % col_count
+                
+                item_x = area_x + padding_x + col * (item_width + padding_x)
+                item_y = area_y + padding_y + row * (item_height + padding_y) - self.bill_scroll_y
+                
+                # Draw item if visible
+                if item_y + item_height >= area_y and item_y <= area_y + area_height:
+                    if dish_id in self.dish_images:
+                        dish_img = self.dish_images[dish_id]
+                        scaled_dish = pygame.transform.scale(dish_img, (item_width, item_height))
+                        self.game_surface.blit(scaled_dish, (item_x, item_y))
+                        
+                        # Draw price tag
+                        price_tag = pygame.font.Font(None, 20).render(f"${price}", True, BLACK)
+                        tag_rect = price_tag.get_rect(center=(item_x + item_width//2, item_y + item_height + 10))
+                        self.game_surface.blit(price_tag, tag_rect)
+            
+            self.game_surface.set_clip(None)
+            
+            # Draw Total Price at bottom right of the area
+            total_text = pygame.font.Font(None, 36).render(f"${total_price}", True, BLACK)
+            # Position at bottom right of scroll area
+            self.game_surface.blit(total_text, (area_x + area_width - 80, area_y + area_height + 50))
+            
+            # Draw Back to Home button at bottom
+            if self.back_to_home_image:
+                btn_x = (GAME_WIDTH - self.back_to_home_image.get_width()) // 2
+                btn_y = bill_y + self.bill_image.get_height() - 100 # Near bottom of bill or screen?
+                # User said "bottom position of bill".
+                # Let's put it slightly overlapping or just below the bill content area
+                btn_y = bill_y + 650 # Adjust based on bill design
+                
+                self.back_to_home_rect = pygame.Rect(btn_x, btn_y, self.back_to_home_image.get_width(), self.back_to_home_image.get_height())
+                self.game_surface.blit(self.back_to_home_image, (btn_x, btn_y))
+        else:
+            # Fallback bill
+            bill_rect = pygame.Rect((GAME_WIDTH - 600)//2, (GAME_HEIGHT - 800)//2, 600, 800)
+            pygame.draw.rect(self.game_surface, WHITE, bill_rect)
+            pygame.draw.rect(self.game_surface, BLACK, bill_rect, 3)
+            
+            title = pygame.font.Font(None, 48).render("Bill", True, BLACK)
+            self.game_surface.blit(title, (bill_rect.centerx - 30, bill_rect.y + 30))
+            
+            # Back button fallback
+            self.back_to_home_rect = pygame.Rect(bill_rect.centerx - 100, bill_rect.bottom - 80, 200, 60)
+            pygame.draw.rect(self.game_surface, BLUE, self.back_to_home_rect)
+            text = pygame.font.Font(None, 32).render("Back to Home", True, WHITE)
+            self.game_surface.blit(text, (self.back_to_home_rect.x + 20, self.back_to_home_rect.y + 20))
+
     def detect_tea_keyword(self, text):
         """Detect tea keywords in transcribed text"""
         if not text:
@@ -1744,6 +1891,54 @@ class Game:
             print("Timeout - defaulting to jasmine tea")
             self.handle_tea_selection("xiangpian")
     
+    def start_order_recording(self):
+        """Start recording for order"""
+        self.order_recording = True
+        self.order_recording_data = []
+        
+        def record():
+            with sd.InputStream(samplerate=self.sample_rate, channels=1, callback=self.order_audio_callback):
+                while self.order_recording:
+                    sd.sleep(100)
+        
+        self.order_record_thread = threading.Thread(target=record)
+        self.order_record_thread.start()
+        print("[INFO] Started order recording...")
+
+    def order_audio_callback(self, indata, frames, time, status):
+        """Callback for order recording"""
+        if self.order_recording:
+            self.order_recording_data.append(indata.copy())
+
+    def stop_order_recording(self):
+        """Stop recording for order and transcribe"""
+        print("[INFO] Stopping order recording...")
+        self.order_recording = False
+        if hasattr(self, 'order_record_thread'):
+            self.order_record_thread.join()
+        
+        if self.order_recording_data:
+            import numpy as np
+            recording_array = np.concatenate(self.order_recording_data, axis=0)
+            temp_file = "temp_order_recording.wav"
+            sf.write(temp_file, recording_array, self.sample_rate)
+            
+            # Transcribe
+            print("[INFO] Transcribing order...")
+            self.order_transcribed_text = "Transcribing..."
+            
+            # Run transcription in separate thread to avoid blocking UI
+            def transcribe_thread():
+                display_text, original_text = self.transcribe_audio(temp_file)
+                self.order_transcribed_text = display_text
+                print(f"[INFO] Order transcribed: {display_text} ({original_text})")
+                
+                # Use original text for detection if it contains Chinese characters
+                text_to_analyze = original_text if original_text else display_text
+                self.handle_order_transcription(text_to_analyze)
+                
+            threading.Thread(target=transcribe_thread).start()
+
     def detect_dish_keywords(self, text):
         """Detect dish keywords in transcribed text and return list of dish IDs"""
         if not text:
@@ -1898,6 +2093,21 @@ class Game:
                             # Clamp scroll offset
                             self.cart_scroll_offset = max(0, min(self.cart_scroll_offset, max_scroll))
                             print(f"[DEBUG] Cart scroll: {self.cart_scroll_offset}/{max_scroll}")
+                            
+                    # Scroll in Bill
+                    elif self.show_bill and self.bill_scroll_area and self.bill_scroll_area.collidepoint(game_pos):
+                        scroll_speed = 30
+                        self.bill_scroll_y -= event.y * scroll_speed
+                        
+                        # Calculate max scroll
+                        col_count = 2
+                        item_height = 80
+                        padding_y = 20
+                        rows = (len(self.cart_items) + col_count - 1) // col_count
+                        content_height = rows * (item_height + padding_y) + padding_y
+                        max_scroll = max(0, content_height - self.bill_scroll_area.height)
+                        
+                        self.bill_scroll_y = max(0, min(self.bill_scroll_y, max_scroll))
             
             if event.type == pygame.MOUSEBUTTONDOWN:
                 # Scale mouse position to game coordinates
@@ -1952,10 +2162,45 @@ class Game:
                             
                             # Check Check Out button
                             if self.checkout_button and self.checkout_button.collidepoint(game_pos):
-                                # End game or show checkout screen
-                                print("[INFO] Check Out clicked - Game Over")
-                                self.state = "end"  # You can add an end screen state if needed
-                                self.running = False  # End the game
+                                # Show bill
+                                print("[INFO] Check Out clicked - Showing Bill")
+                                self.show_bill = True
+                                self.ordering_mode = False # Hide ordering interface
+                                continue
+                        
+                        # Handle Bill interactions
+                        if self.show_bill:
+                            if self.back_to_home_rect and self.back_to_home_rect.collidepoint(game_pos):
+                                # Reset game
+                                print("[INFO] Back to Home clicked - Resetting Game")
+                                self.state = "start"
+                                self.player_seated = False
+                                self.ordering_mode = False
+                                self.show_bill = False
+                                self.cart_items = []
+                                self.tea_selected = None
+                                self.waiting_for_tea_choice = False
+                                self.timer_active = False
+                                self.show_menu = False
+                                self.show_shopping_cart = False
+                                self.npc_moving = True
+                                self.npc_at_player = False
+                                self.npc_current_path_index = 0
+                                self.npc_position = list(self.npc_path_points[0])
+                                continue
+                            
+                            # Handle scrolling in bill (if clicked inside area? usually wheel is better)
+                            pass
+
+                        # Handle recording button click (only if ordering mode is active)
+                        if self.ordering_mode and (self.order_recording or self.order_transcribed_text):
+                            if self.order_record_button and self.order_record_button.collidepoint(game_pos):
+                                # Toggle recording
+                                if self.order_recording:
+                                    self.stop_order_recording()
+                                else:
+                                    self.start_order_recording()
+                                continue
                                 continue
                             
                             # Check recording button (if visible)
