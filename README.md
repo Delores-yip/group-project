@@ -32,6 +32,7 @@ An interactive educational game designed to help players learn and practice orde
     *Note: `sounddevice` requires PortAudio. On Windows, it usually comes bundled. On Linux/macOS, you might need to install it separately (e.g., `sudo apt-get install libportaudio2`).*
 
 ## How to Play
+![未标题-1_画板 1](https://github.com/user-attachments/assets/29e2bacc-ccb4-46b5-bfc9-043fdbccf486)
 
 1.  **Start the Game**: Run the `yum_cha_game.py` script.
     ```bash
