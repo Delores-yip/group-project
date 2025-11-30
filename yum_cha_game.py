@@ -1,6 +1,7 @@
 import pygame
 import sys
 import os
+import random
 from pathlib import Path
 from datetime import timedelta
 import threading
@@ -49,6 +50,9 @@ TEA_AUDIO_TIEGUANYIN = "audio file/tea_tieguanyin.mp3"  # "Okay, one Tieguanyin"
 TEA_AUDIO_XIANGPIAN = "audio file/tea_xiangpian.mp3"    # "Okay, one jasmine tea"
 TEA_AUDIO_PUER = "audio file/tea_puer.mp3"              # "Okay, one Pu-erh"
 TEA_AUDIO_HONGCHA = "audio file/tea_hongcha.mp3"        # "Okay, one black tea"
+
+# Background Music
+BGM_FILE = "music/bgm.mp3"
 
 # NPC ordering assets
 NPC_FULL_BODY = "temp png file/npc full body.png"       # NPC standing portrait for ordering
@@ -202,6 +206,34 @@ DISH_KEYWORDS = {
     "菜心": "chinese_kale",
     "chinese kale": "chinese_kale",
 }
+
+class SteamParticle:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.speed = random.uniform(0.5, 1.5)
+        self.size = random.randint(10, 30)
+        self.alpha = 150
+        self.drift = random.uniform(-0.5, 0.5)
+        self.growth = 0.1
+    
+    def update(self):
+        self.y -= self.speed
+        self.x += self.drift
+        self.size += self.growth
+        self.alpha -= 1.5
+        
+    def draw(self, surface):
+        if self.alpha > 0:
+            # Create a surface for the particle with per-pixel alpha
+            s = pygame.Surface((int(self.size)*2, int(self.size)*2), pygame.SRCALPHA)
+            # Draw a soft circle (white steam)
+            color = (255, 255, 255, int(self.alpha))
+            pygame.draw.circle(s, color, (int(self.size), int(self.size)), int(self.size))
+            surface.blit(s, (int(self.x - self.size), int(self.y - self.size)))
+            
+    def is_dead(self):
+        return self.alpha <= 0
 
 class Button:
     def __init__(self, x, y, width, height, text, color, text_color):
@@ -400,6 +432,23 @@ class Game(AudioRecorder):
         self.npc_last_frame_time = 0       # Last frame update time
         self.npc_frame_duration = 100      # Duration per frame in ms
         
+        # Audio state
+        self.bgm_volume = 0.3              # Default BGM volume
+        self.low_volume = 0.05             # Volume when other audio is playing
+        self.voice_channel = None          # Channel for voice playback
+        
+        # Feedback Animation State
+        self.animation1_frames = []        # Success animation frames
+        self.animation2_frames = []        # Failure/Try again animation frames
+        self.feedback_animation_active = False
+        self.feedback_animation_pending = False
+        self.feedback_animation_start_time = 0
+        self.feedback_animation_delay_start = 0
+        self.feedback_animation_type = None # 1 or 2
+        self.feedback_animation_frame_index = 0
+        self.feedback_animation_last_update = 0
+        self.feedback_animation_frame_duration = 12 # ms per frame (approx 83fps) to speed up playback
+        
         # Load game images from file paths
         self.canteen_bg = None
         self.npc_image = None
@@ -466,6 +515,10 @@ class Game(AudioRecorder):
         self.checkout_button = None  # Checkout button
         self.order_record_button = None  # Recording button for orders
         
+        # Visual Effects
+        self.steam_particles = []
+        self.last_steam_spawn = 0
+        
         # Audio
         self.current_dialogue_audio = None
         self.dialogue_audio_path = DIALOGUE_AUDIO
@@ -496,6 +549,36 @@ class Game(AudioRecorder):
         self.current_dialogue = ""
         self.dialogue_lines = []
         
+    def play_sound_effect(self, audio_path):
+        """Play a sound effect and lower BGM volume"""
+        if audio_path and os.path.exists(audio_path):
+            try:
+                sound = pygame.mixer.Sound(audio_path)
+                # Lower BGM volume
+                pygame.mixer.music.set_volume(self.low_volume)
+                # Play sound on a dedicated channel (or let pygame pick one)
+                self.voice_channel = sound.play()
+            except Exception as e:
+                print(f"Error playing sound {audio_path}: {e}")
+
+    def update_audio(self):
+        """Check if voice audio finished and restore BGM volume"""
+        # If we are recording, keep volume low
+        if self.order_recording or self.is_recording:
+            if pygame.mixer.music.get_volume() != self.low_volume:
+                pygame.mixer.music.set_volume(self.low_volume)
+            return
+
+        # If voice channel is active (playing), keep volume low
+        if self.voice_channel and self.voice_channel.get_busy():
+            if pygame.mixer.music.get_volume() != self.low_volume:
+                pygame.mixer.music.set_volume(self.low_volume)
+        else:
+            # Restore volume if it's not already restored
+            if pygame.mixer.music.get_volume() != self.bgm_volume:
+                pygame.mixer.music.set_volume(self.bgm_volume)
+                self.voice_channel = None
+
     def load_assets(self):
         """Load all assets from the file paths specified at the top of the script"""
         # Load start screen background
@@ -817,6 +900,39 @@ class Game(AudioRecorder):
                 print(f"✓ Loaded back to home image: {BACK_TO_HOME_IMAGE}")
             except Exception as e:
                 print(f"✗ Failed to load back to home image: {e}")
+
+        # Load Feedback Animations
+        # Animation 2 (Success) - Files starting with '2'
+        # Now loading from 'videos' folder if extracted, but we are using pre-extracted frames in 'temp png file'
+        # The user moved the video file, but the frames are still in 'temp png file' from previous extraction.
+        # We will continue to load from 'temp png file' for now as the extraction script puts them there.
+        
+        temp_dir = "temp png file"
+        if os.path.exists(temp_dir):
+            # Animation 2 (Success) - Files starting with '2'
+            files2 = [f for f in os.listdir(temp_dir) if f.startswith('2') and f.endswith('.png')]
+            files2.sort()
+            for f in files2:
+                try:
+                    img = pygame.image.load(os.path.join(temp_dir, f)).convert_alpha()
+                    self.animation2_frames.append(img)
+                except Exception as e:
+                    print(f"Failed to load animation frame {f}: {e}")
+            if self.animation2_frames:
+                print(f"✓ Loaded Animation 2 ({len(self.animation2_frames)} frames)")
+                
+            # Animation 1 (Failure) - REMOVED as requested
+            # We don't load it anymore to save memory/startup time
+
+        # Load and play BGM
+        if BGM_FILE and os.path.exists(BGM_FILE):
+            try:
+                pygame.mixer.music.load(BGM_FILE)
+                pygame.mixer.music.set_volume(self.bgm_volume)
+                pygame.mixer.music.play(-1)  # Loop indefinitely
+                print(f"✓ Loaded and playing BGM: {BGM_FILE}")
+            except Exception as e:
+                print(f"✗ Failed to load BGM: {e}")
     
     def toggle_fullscreen(self):
         """Toggle between fullscreen and windowed mode while maintaining aspect ratio"""
@@ -866,8 +982,7 @@ class Game(AudioRecorder):
         """Load and play dialogue audio"""
         try:
             self.dialogue_audio_path = audio_path
-            pygame.mixer.music.load(audio_path)
-            pygame.mixer.music.play()
+            self.play_sound_effect(audio_path)
         except Exception as e:
             print(f"Failed to load audio: {e}")
     
@@ -923,13 +1038,25 @@ class Game(AudioRecorder):
             
             new_width = int(bg_rect.width * scale)
             new_height = int(bg_rect.height * scale)
-            scaled_bg = pygame.transform.scale(self.start_screen_bg, (new_width, new_height))
+            scaled_bg = pygame.transform.smoothscale(self.start_screen_bg, (new_width, new_height))
             
             # Center the background
             x_offset = (GAME_WIDTH - new_width) // 2
             y_offset = (GAME_HEIGHT - new_height) // 2
             
             self.game_surface.blit(scaled_bg, (x_offset, y_offset))
+            
+            # Update and draw steam particles (Visual Effect)
+            current_time = pygame.time.get_ticks()
+            if current_time - self.last_steam_spawn > 150:
+                self.steam_particles.append(SteamParticle(random.randint(0, GAME_WIDTH), GAME_HEIGHT))
+                self.last_steam_spawn = current_time
+                
+            for particle in self.steam_particles[:]:
+                particle.update()
+                particle.draw(self.game_surface)
+                if particle.is_dead():
+                    self.steam_particles.remove(particle)
         else:
             # Default white background
             self.game_surface.fill(WHITE)
@@ -964,7 +1091,7 @@ class Game(AudioRecorder):
             if scale_factor != 1.0:
                 new_width = int(self.start_button_base_rect.width * scale_factor)
                 new_height = int(self.start_button_base_rect.height * scale_factor)
-                scaled_button = pygame.transform.scale(self.start_button_image, (new_width, new_height))
+                scaled_button = pygame.transform.smoothscale(self.start_button_image, (new_width, new_height))
                 
                 # Center the scaled button on the base position
                 scaled_rect = scaled_button.get_rect(
@@ -986,6 +1113,36 @@ class Game(AudioRecorder):
         instruction = pygame.font.Font(None, 24).render("Press F11 for fullscreen", True, DARK_GRAY)
         instruction_rect = instruction.get_rect(center=(GAME_WIDTH // 2, GAME_HEIGHT - 50))
         self.game_surface.blit(instruction, instruction_rect)
+
+        # Draw custom Tea Cup cursor (Side View) - Larger
+        mouse_pos = self.scale_mouse_pos(pygame.mouse.get_pos())
+        if mouse_pos:
+            pygame.mouse.set_visible(False)
+            x, y = mouse_pos
+            
+            # Scale factor for larger cursor (1.2x)
+            s = 1.2
+            
+            # Draw Saucer (Bottom)
+            pygame.draw.ellipse(self.game_surface, (220, 220, 220), (x - 18*s, y + 10*s, 36*s, 8*s))
+            
+            # Draw Cup Handle (Right side)
+            pygame.draw.circle(self.game_surface, (255, 255, 255), (x + 14*s, y), 6*s, int(2*s))
+            
+            # Draw Cup Body (White cup)
+            pygame.draw.rect(self.game_surface, (255, 255, 255), (x - 12*s, y - 10*s, 24*s, 22*s), border_bottom_left_radius=int(10*s), border_bottom_right_radius=int(10*s))
+            
+            # Draw Tea Liquid (Top perspective)
+            pygame.draw.ellipse(self.game_surface, (139, 69, 19), (x - 12*s, y - 14*s, 24*s, 8*s)) # Brown tea
+            
+            # Draw Cup Rim
+            pygame.draw.ellipse(self.game_surface, (255, 255, 255), (x - 12*s, y - 14*s, 24*s, 8*s), int(2*s))
+            
+            # Draw Steam (Simple lines)
+            pygame.draw.line(self.game_surface, (220, 220, 220), (x - 4*s, y - 20*s), (x - 4*s, y - 30*s), int(2*s))
+            pygame.draw.line(self.game_surface, (220, 220, 220), (x + 4*s, y - 22*s), (x + 4*s, y - 32*s), int(2*s))
+        else:
+            pygame.mouse.set_visible(True)
         
     def draw_game_screen(self):
         """Draw the main game screen"""
@@ -999,7 +1156,7 @@ class Game(AudioRecorder):
             
             new_width = int(bg_rect.width * scale)
             new_height = int(bg_rect.height * scale)
-            scaled_bg = pygame.transform.scale(self.canteen_bg, (new_width, new_height))
+            scaled_bg = pygame.transform.smoothscale(self.canteen_bg, (new_width, new_height))
             
             # Center the background
             x_offset = (GAME_WIDTH - new_width) // 2
@@ -1072,7 +1229,7 @@ class Game(AudioRecorder):
                              self.table_rect.height / table_rect_img.height)
             table_width = int(table_rect_img.width * scale_factor)
             table_height = int(table_rect_img.height * scale_factor)
-            table_scaled = pygame.transform.scale(self.table_image, (table_width, table_height))
+            table_scaled = pygame.transform.smoothscale(self.table_image, (table_width, table_height))
             self.game_surface.blit(table_scaled, (self.table_rect.x, self.table_rect.y))
         else:
             # Draw placeholder table (only when player is NOT seated)
@@ -1090,7 +1247,7 @@ class Game(AudioRecorder):
                 # Scale to height of 140, maintain aspect ratio
                 scale_factor = 140 / player_rect.height
                 player_width = int(player_rect.width * scale_factor)
-                player_scaled = pygame.transform.scale(self.player_image, (player_width, 140))
+                player_scaled = pygame.transform.smoothscale(self.player_image, (player_width, 140))
                 # Position player at the top center side of the table (sitting position)
                 player_x = self.table_rect.centerx - (player_width // 2)
                 player_y = self.table_rect.top - 140  # Slightly overlap table 
@@ -1109,7 +1266,7 @@ class Game(AudioRecorder):
             
             if self.menu_icon:
                 # Draw menu icon (157x157)
-                self.game_surface.blit(pygame.transform.scale(self.menu_icon, (int(157 * 0.7), int(157 * 0.7))), (icon_x, icon_y))
+                self.game_surface.blit(pygame.transform.smoothscale(self.menu_icon, (int(157 * 0.7), int(157 * 0.7))), (icon_x, icon_y))
                 self.menu_icon_rect = pygame.Rect(icon_x, icon_y, int(157 * 0.7), int(157 * 0.7))
             else:
                 # Fallback: draw placeholder icon
@@ -1134,6 +1291,64 @@ class Game(AudioRecorder):
         # Shopping cart - only show after timer ends
         if self.show_shopping_cart and self.player_seated:
             self.draw_shopping_cart()
+            
+        # Handle Feedback Animation (Overlay on center screen)
+        current_time = pygame.time.get_ticks()
+        
+        # Check if pending animation should start
+        if self.feedback_animation_pending:
+            if current_time - self.feedback_animation_delay_start > 500: # 0.5 seconds delay
+                self.feedback_animation_pending = False
+                self.feedback_animation_active = True
+                self.feedback_animation_frame_index = 0
+                self.feedback_animation_last_update = current_time
+                print(f"[INFO] Starting animation type {self.feedback_animation_type}")
+        
+        # Draw active animation
+        if self.feedback_animation_active:
+            frames = []
+            if self.feedback_animation_type == 1:
+                frames = self.animation1_frames
+            elif self.feedback_animation_type == 2:
+                frames = self.animation2_frames
+            
+            if frames:
+                # Update frame with time-based skipping for faster playback
+                elapsed = current_time - self.feedback_animation_last_update
+                if elapsed > self.feedback_animation_frame_duration:
+                    frames_to_advance = elapsed // self.feedback_animation_frame_duration
+                    self.feedback_animation_frame_index += frames_to_advance
+                    self.feedback_animation_last_update = current_time - (elapsed % self.feedback_animation_frame_duration)
+                
+                # Check if animation finished
+                if self.feedback_animation_frame_index >= len(frames):
+                    self.feedback_animation_active = False
+                    self.feedback_animation_frame_index = 0
+                    print("[INFO] Animation finished")
+                else:
+                    # Draw current frame
+                    frame = frames[self.feedback_animation_frame_index]
+                    
+                    # Resize to large square (e.g., 600x600)
+                    square_size = 600
+                    frame_scaled = pygame.transform.smoothscale(frame, (square_size, square_size))
+                    
+                    # Center on screen
+                    frame_rect = frame_scaled.get_rect(center=(GAME_WIDTH // 2, GAME_HEIGHT // 2))
+                    self.game_surface.blit(frame_scaled, frame_rect)
+                    
+                    # Draw "Food is served!" text above the video
+                    text = pygame.font.Font(None, 64).render("Food is served!", True, (207, 118, 44)) # Orange/Brown color
+                    text_rect = text.get_rect(center=(GAME_WIDTH // 2, frame_rect.top - 50))
+                    
+                    # Add a background for text readability
+                    bg_rect = text_rect.inflate(40, 20)
+                    pygame.draw.rect(self.game_surface, (255, 242, 223), bg_rect, border_radius=10)
+                    pygame.draw.rect(self.game_surface, (133, 63, 31), bg_rect, 3, border_radius=10)
+                    
+                    self.game_surface.blit(text, text_rect)
+            else:
+                self.feedback_animation_active = False
         
         # Draw full menu interface (if menu is open) - LAST so it appears on top of everything
         if self.menu_open and self.player_seated:
@@ -1151,7 +1366,7 @@ class Game(AudioRecorder):
                 menu_full_height = int(original_height * 0.7)
                 
                 # Scale the menu image
-                scaled_menu = pygame.transform.scale(self.menu_full, (menu_full_width, menu_full_height))
+                scaled_menu = pygame.transform.smoothscale(self.menu_full, (menu_full_width, menu_full_height))
                 
                 # Center the scaled menu on screen
                 menu_x = (GAME_WIDTH - menu_full_width) // 2
@@ -1179,7 +1394,7 @@ class Game(AudioRecorder):
                         original_btn_height = btn_img.get_height()
                         btn_width = int(original_btn_width * 0.7)
                         btn_height = int(original_btn_height * 0.7)
-                        btn_img = pygame.transform.scale(btn_img, (btn_width, btn_height))
+                        btn_img = pygame.transform.smoothscale(btn_img, (btn_width, btn_height))
                         
                         # Highlight if this is current category
                         if category == self.current_category:
@@ -1271,6 +1486,36 @@ class Game(AudioRecorder):
         # Draw Bill (if checkout clicked)
         if self.show_bill:
             self.draw_bill()
+
+        # Draw custom Tea Cup cursor (Side View) - Larger
+        mouse_pos = self.scale_mouse_pos(pygame.mouse.get_pos())
+        if mouse_pos:
+            pygame.mouse.set_visible(False)
+            x, y = mouse_pos
+            
+            # Scale factor for larger cursor (1.2x)
+            s = 1.2
+            
+            # Draw Saucer (Bottom)
+            pygame.draw.ellipse(self.game_surface, (220, 220, 220), (x - 18*s, y + 10*s, 36*s, 8*s))
+            
+            # Draw Cup Handle (Right side)
+            pygame.draw.circle(self.game_surface, (255, 255, 255), (x + 14*s, y), 6*s, int(2*s))
+            
+            # Draw Cup Body (White cup)
+            pygame.draw.rect(self.game_surface, (255, 255, 255), (x - 12*s, y - 10*s, 24*s, 22*s), border_bottom_left_radius=int(10*s), border_bottom_right_radius=int(10*s))
+            
+            # Draw Tea Liquid (Top perspective)
+            pygame.draw.ellipse(self.game_surface, (139, 69, 19), (x - 12*s, y - 14*s, 24*s, 8*s)) # Brown tea
+            
+            # Draw Cup Rim
+            pygame.draw.ellipse(self.game_surface, (255, 255, 255), (x - 12*s, y - 14*s, 24*s, 8*s), int(2*s))
+            
+            # Draw Steam (Simple lines)
+            pygame.draw.line(self.game_surface, (220, 220, 220), (x - 4*s, y - 20*s), (x - 4*s, y - 30*s), int(2*s))
+            pygame.draw.line(self.game_surface, (220, 220, 220), (x + 4*s, y - 22*s), (x + 4*s, y - 32*s), int(2*s))
+        else:
+            pygame.mouse.set_visible(True)
         
     def draw_ordering_interface(self):
         """Draw the NPC ordering interface when player clicks NPC"""
@@ -1299,7 +1544,7 @@ class Game(AudioRecorder):
                 scale_factor = max_height / npc_height
                 npc_width = int(npc_width * scale_factor)
                 npc_height = max_height
-                npc_img = pygame.transform.scale(npc_img_to_use, (npc_width, npc_height))
+                npc_img = pygame.transform.smoothscale(npc_img_to_use, (npc_width, npc_height))
             
             npc_x = GAME_WIDTH // 4 - npc_width // 2
             npc_y = GAME_HEIGHT - npc_height - 20
@@ -1429,6 +1674,36 @@ class Game(AudioRecorder):
                     text_surf = pygame.font.Font(None, 24).render(line, True, BLACK)
                     self.game_surface.blit(text_surf, (record_x + 10, y_offset))
                     y_offset += 26
+
+        # Draw custom Tea Cup cursor (Side View) - Larger
+        mouse_pos = self.scale_mouse_pos(pygame.mouse.get_pos())
+        if mouse_pos:
+            pygame.mouse.set_visible(False)
+            x, y = mouse_pos
+            
+            # Scale factor for larger cursor (1.2x)
+            s = 1.2
+            
+            # Draw Saucer (Bottom)
+            pygame.draw.ellipse(self.game_surface, (220, 220, 220), (x - 18*s, y + 10*s, 36*s, 8*s))
+            
+            # Draw Cup Handle (Right side)
+            pygame.draw.circle(self.game_surface, (255, 255, 255), (x + 14*s, y), 6*s, int(2*s))
+            
+            # Draw Cup Body (White cup)
+            pygame.draw.rect(self.game_surface, (255, 255, 255), (x - 12*s, y - 10*s, 24*s, 22*s), border_bottom_left_radius=int(10*s), border_bottom_right_radius=int(10*s))
+            
+            # Draw Tea Liquid (Top perspective)
+            pygame.draw.ellipse(self.game_surface, (139, 69, 19), (x - 12*s, y - 14*s, 24*s, 8*s)) # Brown tea
+            
+            # Draw Cup Rim
+            pygame.draw.ellipse(self.game_surface, (255, 255, 255), (x - 12*s, y - 14*s, 24*s, 8*s), int(2*s))
+            
+            # Draw Steam (Simple lines)
+            pygame.draw.line(self.game_surface, (220, 220, 220), (x - 4*s, y - 20*s), (x - 4*s, y - 30*s), int(2*s))
+            pygame.draw.line(self.game_surface, (220, 220, 220), (x + 4*s, y - 22*s), (x + 4*s, y - 32*s), int(2*s))
+        else:
+            pygame.mouse.set_visible(True)
     
     def draw_timer(self):
         """Draw the countdown timer"""
@@ -1623,27 +1898,33 @@ class Game(AudioRecorder):
             scaled_height = int(original_height * 0.7)
             
             # Scale the image
-            scaled_cart = pygame.transform.scale(self.shopping_cart_image, (scaled_width, scaled_height))
+            scaled_cart = pygame.transform.smoothscale(self.shopping_cart_image, (scaled_width, scaled_height))
             
             # Draw scaled shopping cart image as background
             self.game_surface.blit(scaled_cart, (cart_x, cart_y))
             self.shopping_cart_rect = pygame.Rect(cart_x, cart_y, scaled_width, scaled_height)
+            
+            # Draw Total Price at top right
+            total_price = sum(self.dish_prices.get(dish_id, 0) for dish_id in self.cart_items)
+            total_font = pygame.font.Font(None, 36)
+            total_text = total_font.render(f"${total_price}", True, (133, 63, 31)) # Brown color
+            self.game_surface.blit(total_text, (cart_x + scaled_width - total_text.get_width() - 30, cart_y + 25))
             
             # Draw cart items horizontally with left-right scrolling
             if self.cart_items:
                 # Create clipping region for items with side margins
                 side_margin = 40  # Leave 40px margin on each side
                 items_x = cart_x + side_margin
-                items_y = cart_y + 70  # Lower position
+                items_y = cart_y + 60  # Moved up slightly to make room for prices
                 items_width = scaled_width - (side_margin * 2)  # Subtract margins from both sides
-                items_height = scaled_height - 100  # Larger scroll area
+                items_height = scaled_height - 80  # Increased height for prices
                 items_rect = pygame.Rect(items_x, items_y, items_width, items_height)
                 
                 self.game_surface.set_clip(items_rect)
                 
                 # Draw each item horizontally (left to right)
                 item_size = 80  # User adjusted size
-                padding = 5
+                padding = 15 # Increased padding
                 
                 for i, dish_id in enumerate(self.cart_items):
                     # Calculate x position for each item
@@ -1651,11 +1932,17 @@ class Game(AudioRecorder):
                     
                     if dish_id in self.dish_images:
                         dish_img = self.dish_images[dish_id]
-                        scaled_dish = pygame.transform.scale(dish_img, (item_size, item_size))
+                        scaled_dish = pygame.transform.smoothscale(dish_img, (item_size, item_size))
                         
                         # Only draw if visible (horizontal check)
                         if x_offset + item_size >= items_x and x_offset <= items_x + items_width:
                             self.game_surface.blit(scaled_dish, (x_offset, items_y))
+                            
+                            # Draw price tag below item
+                            price = self.dish_prices.get(dish_id, 0)
+                            price_tag = pygame.font.Font(None, 24).render(f"${price}", True, BLACK)
+                            tag_rect = price_tag.get_rect(center=(x_offset + item_size//2, items_y + item_size + 12))
+                            self.game_surface.blit(price_tag, tag_rect)
                 
                 self.game_surface.set_clip(None)
         else:
@@ -1669,11 +1956,16 @@ class Game(AudioRecorder):
             title = pygame.font.Font(None, 28).render("Shopping Cart:", True, BLACK)
             self.game_surface.blit(title, (cart_x + 10, cart_y + 10))
             
+            # Total
+            total_price = sum(self.dish_prices.get(dish_id, 0) for dish_id in self.cart_items)
+            total_text = pygame.font.Font(None, 28).render(f"${total_price}", True, (133, 63, 31))
+            self.game_surface.blit(total_text, (cart_x + cart_width - total_text.get_width() - 10, cart_y + 10))
+            
             # Draw items horizontally (left to right)
             if self.cart_items:
                 side_margin = 40  # Leave 40px margin on each side
                 items_x = cart_x + side_margin
-                items_y = cart_y + 90  # Lower position (center-bottom area)
+                items_y = cart_y + 50  # Lower position (center-bottom area)
                 item_size = 80  # User adjusted size
                 padding = 5
                 
@@ -1684,7 +1976,7 @@ class Game(AudioRecorder):
                     if x_pos + item_size >= items_x and x_pos <= cart_x + cart_width - 10:
                         if dish_id in self.dish_images:
                             dish_img = self.dish_images[dish_id]
-                            scaled_dish = pygame.transform.scale(dish_img, (item_size, item_size))
+                            scaled_dish = pygame.transform.smoothscale(dish_img, (item_size, item_size))
                             self.game_surface.blit(scaled_dish, (x_pos, items_y))
             else:
                 # Empty cart message
@@ -1701,13 +1993,13 @@ class Game(AudioRecorder):
         
         # Grid configuration
         cols = 3
-        dish_width = 150  # Width of each dish image
-        dish_height = 150  # Height of each dish image
+        dish_width = 180  # Width of each dish image
+        dish_height = 180  # Height of each dish image
         padding = 20  # Padding between dishes
         
         # Calculate grid layout
         grid_width = (dish_width + padding) * cols - padding - 200  # Extra padding on sides
-        start_x = self.menu_boundary_rect.x + (self.menu_boundary_rect.width - grid_width) // 2
+        start_x = self.menu_boundary_rect.x + (self.menu_boundary_rect.width - grid_width) // 2 + 60
         start_y = self.menu_boundary_rect.y + 20  # Top padding
         
         # Clear dish display rects
@@ -1732,7 +2024,7 @@ class Game(AudioRecorder):
                 if dish_id in self.dish_images:
                     # Scale dish image to fit
                     dish_img = self.dish_images[dish_id]
-                    scaled_dish = pygame.transform.scale(dish_img, (dish_width, dish_height))
+                    scaled_dish = pygame.transform.smoothscale(dish_img, (dish_width, dish_height))
                     self.game_surface.blit(scaled_dish, (dish_x, dish_y))
                 else:
                     # Fallback: draw placeholder
@@ -1764,29 +2056,28 @@ class Game(AudioRecorder):
             bill_y = (GAME_HEIGHT - self.bill_image.get_height()) // 2
             self.game_surface.blit(self.bill_image, (bill_x, bill_y))
             
-            # Scrollable area definition (253x368)
-            # Position needs to be determined relative to bill image
-            # Assuming it's in the "middle" as requested. 
-            # Let's estimate or use fixed offset if user didn't specify exact coordinates.
-            # User said "middle position". Let's center it horizontally in the bill, and vertically somewhat centered.
-            # Bill size: 654x866. Area size: 253x368.
+            # Scrollable area definition (Larger as requested)
+            # Bill size: 654x866. 
+            # Old Area size: 253x368.
+            # New Area size: 350x500 (approx)
             
-            area_width = 253
-            area_height = 368
-            area_x = bill_x + (self.bill_image.get_width() - area_width) // 2
-            area_y = bill_y + 200 # Estimate Y position, maybe adjust later
+            area_width = 350
+            area_height = 420 # Reduced to fit exactly 3 rows (6 items)
+            # Move area slightly right (+20) and down (+20)
+            area_x = bill_x + (self.bill_image.get_width() - area_width) // 2 + 20
+            area_y = bill_y + 150 + 20 
             
             self.bill_scroll_area = pygame.Rect(area_x, area_y, area_width, area_height)
             
             # Create clipping rect for scroll area
             self.game_surface.set_clip(self.bill_scroll_area)
             
-            # Draw items in 2 columns
+            # Draw items in 2 columns (Slightly smaller than previous large size)
             col_count = 2
-            item_width = 80 # Same as cart
-            item_height = 80
+            item_width = 110 # Reduced from 130
+            item_height = 110 # Reduced from 130
             padding_x = (area_width - (col_count * item_width)) // 3
-            padding_y = 20
+            padding_y = 25
             
             total_price = 0
             
@@ -1805,20 +2096,29 @@ class Game(AudioRecorder):
                 if item_y + item_height >= area_y and item_y <= area_y + area_height:
                     if dish_id in self.dish_images:
                         dish_img = self.dish_images[dish_id]
-                        scaled_dish = pygame.transform.scale(dish_img, (item_width, item_height))
+                        scaled_dish = pygame.transform.smoothscale(dish_img, (item_width, item_height))
                         self.game_surface.blit(scaled_dish, (item_x, item_y))
                         
-                        # Draw price tag
-                        price_tag = pygame.font.Font(None, 20).render(f"${price}", True, BLACK)
-                        tag_rect = price_tag.get_rect(center=(item_x + item_width//2, item_y + item_height + 10))
+                        # Draw price tag (Larger font)
+                        price_tag = pygame.font.Font(None, 28).render(f"${price}", True, BLACK)
+                        tag_rect = price_tag.get_rect(center=(item_x + item_width//2, item_y + item_height + 15))
                         self.game_surface.blit(price_tag, tag_rect)
             
             self.game_surface.set_clip(None)
             
             # Draw Total Price at bottom right of the area
-            total_text = pygame.font.Font(None, 36).render(f"${total_price}", True, BLACK)
-            # Position at bottom right of scroll area
-            self.game_surface.blit(total_text, (area_x + area_width - 80, area_y + area_height + 50))
+            # Using a larger, more visible font and position
+            total_font = pygame.font.Font(None, 48)
+            total_text = total_font.render(f"${total_price}", True, (133, 63, 31)) # Brown color
+            
+            # Position: Move up and left from previous position
+            # Previous: area_x + area_width - total_text.get_width() - 30, area_y + area_height - 10
+            # New: Move further left (-50 more) and up (-40 more)
+            total_x = area_x + area_width - total_text.get_width() - 80
+            # Fixed Y position relative to area start (since area_height is now smaller)
+            total_y = area_y + 450 
+            
+            self.game_surface.blit(total_text, (total_x, total_y))
             
             # Draw Back to Home button at bottom
             if self.back_to_home_image:
@@ -1973,20 +2273,30 @@ class Game(AudioRecorder):
                 self.cart_items.append(dish_id)
                 print(f"[INFO] Added {dish_id} to cart")
             
-            # Close ordering interface
-            self.ordering_mode = False
-            self.order_recording = False
-            self.order_transcribed_text = ""
-            
-            # Resume NPC movement
-            self.npc_moving = True
+            # Trigger Success Animation (Use Animation 2 as requested)
+            self.feedback_animation_type = 2
+            self.feedback_animation_pending = True
+            self.feedback_animation_delay_start = pygame.time.get_ticks()
+            print("[INFO] Order successful, queuing animation 2 (Success)")
             
             # Show confirmation message
             dish_count = len(detected_dishes)
             self.set_dialogue(f"Added {dish_count} dish(es) to your cart!", None)
+            
+            # Close ordering interface IMMEDIATELY as requested
+            self.ordering_mode = False
+            self.order_recording = False
+            self.order_transcribed_text = ""
+            self.npc_moving = True
+            print("[INFO] Closing ordering interface, waiting for animation...")
+            
         else:
+            # Failure - No animation, just text
+            print("[INFO] Order unclear, no animation")
+            
             # No dishes detected
             self.order_transcribed_text = "Sorry, I didn't catch that. Please try again."
+            print("[WARNING] No dishes detected in order")
             print("[WARNING] No dishes detected in order")
     
     def update_npc_movement(self):
@@ -2072,7 +2382,7 @@ class Game(AudioRecorder):
                             # Calculate max scroll (prevent scrolling past content)
                             dish_ids = self.get_dishes_for_category(self.current_category)
                             rows = (len(dish_ids) + 2) // 3  # Round up division
-                            max_scroll = max(0, rows * 170 - self.menu_boundary_rect.height + 40)
+                            max_scroll = max(0, rows * 200 - self.menu_boundary_rect.height + 80)
                             
                             # Clamp scroll offset
                             self.menu_scroll_offset = max(0, min(self.menu_scroll_offset, max_scroll))
@@ -2089,8 +2399,8 @@ class Game(AudioRecorder):
                             item_size = 80  # User adjusted size
                             padding = 5
                             side_margin = 40  # Margin on each side
-                            cart_display_width = int(self.shopping_cart_image.get_width() * 0.7 - side_margin * 2) if self.shopping_cart_image else 350
-                            max_scroll = max(0, len(self.cart_items) * (item_size + padding) - cart_display_width)
+                            cart_display_width = int(self.shopping_cart_image.get_width() * 0.7) - side_margin * 2 if self.shopping_cart_image else 350
+                            max_scroll = max(0, len(self.cart_items) * (item_size + padding) - cart_display_width + item_size + padding + 60)
                             
                             # Clamp scroll offset
                             self.cart_scroll_offset = max(0, min(self.cart_scroll_offset, max_scroll))
@@ -2103,8 +2413,8 @@ class Game(AudioRecorder):
                         
                         # Calculate max scroll
                         col_count = 2
-                        item_height = 80
-                        padding_y = 20
+                        item_height = 110 # Updated to match draw_bill
+                        padding_y = 25    # Updated to match draw_bill
                         rows = (len(self.cart_items) + col_count - 1) // col_count
                         content_height = rows * (item_height + padding_y) + padding_y
                         max_scroll = max(0, content_height - self.bill_scroll_area.height)
@@ -2112,6 +2422,10 @@ class Game(AudioRecorder):
                         self.bill_scroll_y = max(0, min(self.bill_scroll_y, max_scroll))
             
             if event.type == pygame.MOUSEBUTTONDOWN:
+                # Only process left clicks (button 1)
+                if event.button != 1:
+                    continue
+
                 # Scale mouse position to game coordinates
                 game_pos = self.scale_mouse_pos(pygame.mouse.get_pos())
                 
@@ -2272,8 +2586,7 @@ class Game(AudioRecorder):
                                 # Play NPC greeting audio if exists
                                 if NPC_ORDER_AUDIO and os.path.exists(NPC_ORDER_AUDIO):
                                     try:
-                                        pygame.mixer.music.load(NPC_ORDER_AUDIO)
-                                        pygame.mixer.music.play()
+                                        self.play_sound_effect(NPC_ORDER_AUDIO)
                                     except Exception as e:
                                         print(f"[ERROR] Failed to play NPC order audio: {e}")
                                 continue
@@ -2302,8 +2615,7 @@ class Game(AudioRecorder):
                                     if dish_id in self.dish_audio_paths:
                                         audio_path = self.dish_audio_paths[dish_id]
                                         try:
-                                            pygame.mixer.music.load(audio_path)
-                                            pygame.mixer.music.play()
+                                            self.play_sound_effect(audio_path)
                                             print(f"[INFO] Playing audio for dish: {dish_id}")
                                         except Exception as e:
                                             print(f"[ERROR] Failed to play audio for {dish_id}: {e}")
@@ -2321,8 +2633,7 @@ class Game(AudioRecorder):
                         # Check play audio button (updated position)
                         play_button_rect = pygame.Rect(GAME_WIDTH - 130, 130, 90, 35)
                         if play_button_rect.collidepoint(game_pos) and self.dialogue_audio_path:
-                            pygame.mixer.music.load(self.dialogue_audio_path)
-                            pygame.mixer.music.play()
+                            self.play_sound_effect(self.dialogue_audio_path)
                         
                         # Check record button
                         if self.record_button.is_clicked(game_pos):
@@ -2361,6 +2672,9 @@ class Game(AudioRecorder):
     
     def update(self):
         """Update game state"""
+        # Update audio volume
+        self.update_audio()
+
         # Update NPC movement
         self.update_npc_movement()
         
@@ -2392,7 +2706,7 @@ class Game(AudioRecorder):
             # Scale and draw game surface to screen with letterboxing
             self.screen.fill(BLACK)  # Black bars for letterboxing
             scaled_rect = self.get_scaled_rect()
-            scaled_surface = pygame.transform.scale(self.game_surface, 
+            scaled_surface = pygame.transform.smoothscale(self.game_surface, 
                                                     (scaled_rect.width, scaled_rect.height))
             self.screen.blit(scaled_surface, scaled_rect)
             
