@@ -21,17 +21,15 @@ An interactive educational game designed to help players learn and practice orde
 
 ## Installation
 
-### 1. Install Python
-If you don't have Python installed yet:
-1.  Download it from [python.org](https://www.python.org/downloads/).
-2.  Install **Python 3.8** or a newer version.
-3.  **CRITICAL STEP**: During installation, make sure to check the box **"Add Python to PATH"** at the bottom of the installer window.
+1.  **Clone the repository** or download the source code.
 
-### 2. Install Dependencies
-Open a terminal (PowerShell or Command Prompt) in the game folder and run the following command:
+2.  **Install the required Python libraries**:
+    Open your terminal or command prompt and run:
+    ```bash
+    pip install pygame sounddevice soundfile SpeechRecognition numpy Pillow
+    ```
 
-```bash
-pip install pygame sounddevice soundfile SpeechRecognition numpy Pillow
+    *Note: `sounddevice` requires PortAudio. On Windows, it usually comes bundled. On Linux/macOS, you might need to install it separately (e.g., `sudo apt-get install libportaudio2`).*
 
 ## How to Play
 
@@ -85,3 +83,4 @@ pip install pygame sounddevice soundfile SpeechRecognition numpy Pillow
 ## Credits
 
 Created for the Creative Programming Group Project.
+
