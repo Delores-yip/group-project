@@ -76,6 +76,10 @@ An interactive educational game designed to help players learn and practice orde
 *   **Speech Recognition errors**: Ensure you have a stable internet connection as the game uses Google's online speech recognition API.
 *   **Asset errors**: If the game crashes on startup, ensure all image and audio files are present in their respective directories as defined in the configuration section of the code.
 
+##AI Tool Usage Statement
+
+*During the preparation of this work, the author used Jimeng AI, Doubao, and Nano Banana to generate game scenes, characters, and some UI elements.
+
 ## Credits
 
 Created for the Creative Programming Group Project.
