@@ -78,7 +78,7 @@ An interactive educational game designed to help players learn and practice orde
 
 ## AI Tool Usage Statement
 
-*   **During the preparation of this work, the author used Jimeng AI, Doubao, and Nano Banana to generate game scenes, characters, and some UI elements.
+*   During the preparation of this work, the author used Jimeng AI, Doubao, and Nano Banana to generate game scenes, characters, and some UI elements.
 
 ## Credits
 
